@@ -1,0 +1,8 @@
+Compile and Run:
+    gcc -o server server.c
+    gcc -o client client.c
+
+
+Sources used:
+    https://www.cs.dartmouth.edu/~campbell/cs50/socketprogramming.html
+
