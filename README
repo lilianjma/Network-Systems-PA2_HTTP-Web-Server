@@ -12,3 +12,8 @@ Current Problems:
     - After get is correctly called, you have to send the same command twice before it works
     - server exits twice and closes socket twice
 
+Notes:
+(echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10; echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10;  echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n") | nc 127.0.0.1 9000
+
+echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n" | nc 127.0.0.1 9000
+

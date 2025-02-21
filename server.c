@@ -9,8 +9,7 @@
 #include  <signal.h>
 
 #define MAXLINE 			4096 /*max text line length*/
-#define LISTENQ 			8	 /*maximum number of client connections*/
-#define BUF_SIZE			64*1024
+#define LISTENQ 			200	 /*maximum number of client connections*/
 #define ROOT				"./www/"
 #define GET_METHOD	 		"GET"
 #define VERSION_0 			"HTTP/1.0"
@@ -90,9 +89,10 @@ int main(int argc, char **argv)
 				puts(buf);
 				command_handler(connfd, buf);
 				printf("exited commandhandler\n");
+				bzero(buf, sizeof(buf));
+				
 			}
 
-			printf("in here 1\n");
 			if (n < 0)
 				printf("%s\n", "Read error");
 			
@@ -109,6 +109,7 @@ void  INThandler(int sig)
     signal(sig, SIG_IGN);
 	printf("\nServer exiting...\n");
 	if (serverfd != -1) {
+		// wait(10);
         close(serverfd);
         printf("Server socket closed.\n");
     }
@@ -156,12 +157,12 @@ void command_handler(int connfd, char* buf) {
 	printf("In commandhandler\n");
 
 	// Error if incorrect number of args
-	int argc = wordcount(buf);
-	if (argc != 3) {
-		char* response = "400 Bad Request\r\n\r\n";
-		send(connfd, response, strlen(response), 0);
-		return;
-	}
+	// int argc = wordcount(buf);
+	// if (argc != 3) {
+	// 	char* response = "400 Bad Request\r\n\r\n";
+	// 	send(connfd, response, strlen(response), 0);
+	// 	return;
+	// }
 
     // Parse request from client
     sscanf(buf, "%s %s %s", method, uri, version);
@@ -193,18 +194,40 @@ void command_handler(int connfd, char* buf) {
 		send(connfd, response, strlen(response), 0);
     }
 	else { 			// File found
-        char* header = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
-        send(connfd, header, strlen(header), 0);
+		// Get file size
+		ssize_t filesize = lseek(fd, 0, SEEK_END);
+		if (filesize == -1) {
+			perror("Failed to determine file size");
+			close(fd);
+			return;
+		}
+	
+		// Set file pointer to beginning
+		if (lseek(fd, 0, SEEK_SET) == -1) {
+			perror("Failed to reset file pointer");
+			close(fd);
+			return;
+		}
+	
+		// Create header and get header length
+		char header[256];
+		sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %zd\r\nContent-Type: text/html\r\n\r\n", filesize);
+		size_t header_len = strlen(header);
 
-        // Send file contents
-        char file_buffer[BUF_SIZE];
-        ssize_t bytes;
-		int offset = 0;
-		
-        bytes = pread(fd, file_buffer, BUF_SIZE, offset);
-		send(connfd, file_buffer, bytes, 0);
-		offset += BUF_SIZE;
-		bzero(file_buffer, sizeof(file_buffer));
+		// Allocate memory for the file content + null terminator + header length
+		char* resp_buf = (char*)malloc(filesize + 1 + header_len);
+		if (!resp_buf) {
+			perror("Memory allocation failed");
+			close(fd);
+			return;
+		}
+
+		memcpy(resp_buf, header, header_len);
+
+		pread(fd, resp_buf+header_len, filesize + 1, 0);
+		printf("%s\n", resp_buf);
+		send(connfd, resp_buf, header_len + filesize + 1, 0);
+		free(resp_buf);
     }
 	close(fd);
 	printf("File, %s, closed\n", filepath);
