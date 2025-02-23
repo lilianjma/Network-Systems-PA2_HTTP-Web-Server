@@ -139,6 +139,16 @@ int wordcount(char* bufptr) {
 	return count;
 }
 
+/**
+ * Get the file extension
+ * https://stackoverflow.com/questions/5309471/getting-file-extension-in-c
+ */
+const char *get_filename_ext(const char *filename) {
+    const char *dot = strrchr(filename, '.');
+    if(!dot || dot == filename) return "";
+    return dot + 1;
+}
+
 /********************** REQUEST HEADER FORMAT **********************
  * HTTP/1.1 200 OK \r\n
  * Content-Type: <> \r\n # Tells about the type of content and the formatting of <file contents> 
@@ -153,7 +163,7 @@ int wordcount(char* bufptr) {
 void command_handler(int connfd, char* buf) {
 	
 	char method[12]; char uri[256]; char version[12]; // User input buffers
-	char filepath[512];
+	char filepath[512]; char contenttype[24];
 	printf("In commandhandler\n");
 
 	// Error if incorrect number of args
@@ -181,6 +191,11 @@ void command_handler(int connfd, char* buf) {
 		return;
 	}
 
+	// Direct to index.html
+	if (strcmp(uri, "/") == 0) {
+		strcpy(uri, "index.html");
+	}
+
 	// Create file path
 	strcpy(filepath, ROOT);
     strcat(filepath, uri);
@@ -194,6 +209,30 @@ void command_handler(int connfd, char* buf) {
 		send(connfd, response, strlen(response), 0);
     }
 	else { 			// File found
+		// Get file extension type
+		const char* ext = get_filename_ext(uri);
+		if (strcmp(ext, "html") == 0) {
+			strcpy(contenttype,"text/html");
+		} else if (strcmp(ext, "txt") == 0) {
+			strcpy(contenttype,"text/plain");
+		} else if (strcmp(ext, "png") == 0) {
+			strcpy(contenttype,"image/png");
+		} else if (strcmp(ext, "gif") == 0) {
+			strcpy(contenttype,"image/gif");
+		} else if (strcmp(ext, "jpg") == 0) {
+			strcpy(contenttype,"image/jpg");
+		} else if (strcmp(ext, "ico") == 0) {
+			strcpy(contenttype,"image/x-icon");
+		} else if (strcmp(ext, "css") == 0) {
+			strcpy(contenttype,"text/css");
+		} else if (strcmp(ext, "js") == 0) {
+			strcpy(contenttype,"application/javascript");
+		} else {
+			char* response = "400 Bad Request\r\n\r\n";
+			send(connfd, response, strlen(response), 0);
+			return;
+		}
+
 		// Get file size
 		ssize_t filesize = lseek(fd, 0, SEEK_END);
 		if (filesize == -1) {
@@ -211,7 +250,8 @@ void command_handler(int connfd, char* buf) {
 	
 		// Create header and get header length
 		char header[256];
-		sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %zd\r\nContent-Type: text/html\r\n\r\n", filesize);
+		sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %zd\r\nContent-Type: %s\r\n\r\n",
+				filesize, contenttype);
 		size_t header_len = strlen(header);
 
 		// Allocate memory for the file content + null terminator + header length
