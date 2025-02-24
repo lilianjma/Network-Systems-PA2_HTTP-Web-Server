@@ -7,13 +7,9 @@ Sources used:
     https://www.cs.dartmouth.edu/~campbell/cs50/socketprogramming.html -- basis of the forking
     https://stackoverflow.com/questions/4217037/catch-ctrl-c-in-c -- Handle ctrl c gracefully
 
-Current Problems:
-    - Server keeps sending multiple of the same file contents after GET is correctly called
-    - After get is correctly called, you have to send the same command twice before it works
-    - server exits twice and closes socket twice
-
 Notes:
 (echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10; echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10;  echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n") | nc 127.0.0.1 9000
 
-echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n" | nc 127.0.0.1 9000
+(echo -en "GET /simple.txt HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10; echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10;  echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n") | nc 127.0.0.1 9000
 
+echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n" | nc 127.0.0.1 9000

@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include  <signal.h>
+#include <errno.h>
+#include <pthread.h>
 
 #define MAXLINE 			4096 /*max text line length*/
 #define LISTENQ 			200	 /*maximum number of client connections*/
@@ -19,10 +21,11 @@
 int serverfd = -1;
 
 void INThandler(int);
-void command_handler(int socketfd, char buf[]);
+int command_handler(int socketfd, char buf[]);
 
 /**
  * Method: 	main
+ * Sources: https://www.cs.dartmouth.edu/~campbell/cs50/socketprogramming.html
  * Uses: 	Recieve connection requests
  * 			Fork for every connection
  * 			Parse connections
@@ -72,6 +75,7 @@ int main(int argc, char **argv)
 		clilen = sizeof(cliaddr);
 		// accept a connection
 		connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);
+		int iskeepalive = 0;
 
 		printf("%s\n", "Received request...");
 
@@ -87,10 +91,8 @@ int main(int argc, char **argv)
 			{
 				printf("String received from the client: ");
 				puts(buf);
-				command_handler(connfd, buf);
-				printf("exited commandhandler\n");
+				iskeepalive = command_handler(connfd, buf);
 				bzero(buf, sizeof(buf));
-				
 			}
 
 			if (n < 0)
@@ -98,50 +100,46 @@ int main(int argc, char **argv)
 			
 			exit(0);
 		}
-		// close socket of the server
-		printf("Socket closed\n");
-		close(connfd);
+		if(!iskeepalive) {
+			close(connfd);
+			printf("Closed connfd\n");
+		}
 	}
 }
 
+void *watchdog_timer(void *arg) {
+    sleep(10);  // 10 second
+    printf("Child processes took too long to terminate\n");
+	close(serverfd);
+    printf("Server socket closed.\n");
+	return NULL;
+}
+
+/**
+ * INThandler
+ * Sources: https://stackoverflow.com/questions/4217037/catch-ctrl-c-in-c
+ * Use: 	Handle CTRL C gracefully
+ */
 void  INThandler(int sig)
 {
     signal(sig, SIG_IGN);
 	printf("\nServer exiting...\n");
+	pthread_t timer_thread;
+
 	if (serverfd != -1) {
-		// wait(10);
+		pthread_create(&timer_thread, NULL, watchdog_timer, NULL); // start timer
+		while (wait(NULL)>0) {} 	// wait for child processes to terminate
         close(serverfd);
         printf("Server socket closed.\n");
+		pthread_cancel(timer_thread);	// end timer
     }
 	 exit(0);
 }
 
-int wordcount(char* bufptr) {
-	/* count the number of words in the command line */
-	char *ptrcpy = bufptr;
-	int count = 0;
-	int inWord = 0;
-
-	while (*ptrcpy != '\0')
-	{
-		if (*ptrcpy == ' ')
-		{
-			inWord = 0;
-		}
-		else if (!inWord)
-		{
-			inWord = 1;
-			count++;
-		}
-		ptrcpy++;
-	}
-
-	return count;
-}
-
 /**
- * Get the file extension
- * https://stackoverflow.com/questions/5309471/getting-file-extension-in-c
+ * get_filename_ext
+ * Sources: https://stackoverflow.com/questions/5309471/getting-file-extension-in-c
+ * Use:		Get the file extension
  */
 const char *get_filename_ext(const char *filename) {
     const char *dot = strrchr(filename, '.');
@@ -154,41 +152,58 @@ const char *get_filename_ext(const char *filename) {
  * Content-Type: <> \r\n # Tells about the type of content and the formatting of <file contents> 
  * Content-Length:<> \r\n # Numeric value of the number of bytes of <file contents>
  * \r\n<file contents>
-*/
+*******************************************************************/
 
 /**
  * Method:	command_handler
- * Uses:	
+ * Uses:	Send requested data and header
  */
-void command_handler(int connfd, char* buf) {
-	
-	char method[12]; char uri[256]; char version[12]; // User input buffers
-	char filepath[512]; char contenttype[24];
-	printf("In commandhandler\n");
+int command_handler(int connfd, char* buf) {
+	// User input buffers
+	char method[12];
+	char uri[256];
+	char version[12];
+	int iskeepalive = 0;
+	char ka_buf[12];
 
-	// Error if incorrect number of args
-	// int argc = wordcount(buf);
-	// if (argc != 3) {
-	// 	char* response = "400 Bad Request\r\n\r\n";
-	// 	send(connfd, response, strlen(response), 0);
-	// 	return;
-	// }
+	// Send buffers
+	char filepath[512];
+	char contenttype[24];
+	char header[256];
 
     // Parse request from client
     sscanf(buf, "%s %s %s", method, uri, version);
 
+	// check keep alive
+	char* p_ka = strstr(buf, "Connection: ");
+	if (p_ka == NULL) {
+		printf("Connection string not found\n");
+		strcpy(ka_buf, "Close");
+	} else if (strcmp(p_ka+13, "close")){
+		printf("Close activated\n");
+		strcpy(ka_buf, "Close");
+	} else if (strcmp(p_ka+13, "Keep-alive")) {
+		iskeepalive = 1;
+		strcpy(ka_buf, "Keep-alive");
+		printf("Keep alive activated!\n");
+	} else {
+		char* response = "400 Bad Request\r\nConnection: Close\r\n\r\n";
+		send(connfd, response, strlen(response), 0);
+		return iskeepalive;
+	}
+
 	// Error if not using GET
 	if (strcmp(method, GET_METHOD)) {
-		char* response = "405 Method Not Allowed\r\n\r\n";
-		send(connfd, response, strlen(response), 0);
-		return;
+		sprintf(header, "405 Method Not Allowed\r\nConnection: %s\r\n\r\n", ka_buf);
+		send(connfd, header, strlen(header), 0);
+		return iskeepalive;
 	}
 
 	// Error if wrong versions
 	if ((strcmp(version, VERSION_0) != 0) && (strcmp(version, VERSION_1) != 0)) {
-		char* response = "505 HTTP Version Not Supported\r\n\r\n";
-		send(connfd, response, strlen(response), 0);
-		return;
+		sprintf(header, "505 HTTP Version Not Supported\r\nConnection: %s\r\n\r\n", ka_buf);
+		send(connfd, header, strlen(header), 0);
+		return iskeepalive;
 	}
 
 	// Direct to index.html
@@ -205,8 +220,15 @@ void command_handler(int connfd, char* buf) {
 	printf("%s\n", filepath);
 
     if (fd == -1) { // File not found
-        char* response = "HTTP/1.1 404 Not Found\r\n\r\n"; // TODO do i need to add "\r\nContent-Length: 0"?
-		send(connfd, response, strlen(response), 0);
+		if (errno == EACCES) {
+            printf("Permission denied\n");
+			sprintf(header, "403 Forbidden\r\nConnection: %s\r\n\r\n", ka_buf);
+        } else {
+            printf("Error opening file\n");
+			sprintf(header, "HTTP/1.1 404 Not Found\r\nConnection: %s\r\n\r\n", ka_buf);
+        }
+		send(connfd, header, strlen(header), 0);
+		if (!iskeepalive) close(connfd);
     }
 	else { 			// File found
 		// Get file extension type
@@ -228,9 +250,9 @@ void command_handler(int connfd, char* buf) {
 		} else if (strcmp(ext, "js") == 0) {
 			strcpy(contenttype,"application/javascript");
 		} else {
-			char* response = "400 Bad Request\r\n\r\n";
-			send(connfd, response, strlen(response), 0);
-			return;
+			sprintf(header, "400 Bad Request\r\nConnection: %s\r\n\r\n", ka_buf);
+			send(connfd, header, strlen(header), 0);
+			return iskeepalive;
 		}
 
 		// Get file size
@@ -238,20 +260,24 @@ void command_handler(int connfd, char* buf) {
 		if (filesize == -1) {
 			perror("Failed to determine file size");
 			close(fd);
-			return;
+			sprintf(header, "400 Bad Request\r\nConnection: %s\r\n\r\n", ka_buf);
+			send(connfd, header, strlen(header), 0);
+			// if (!iskeepalive) close(connfd);
+			return iskeepalive;
 		}
 	
 		// Set file pointer to beginning
 		if (lseek(fd, 0, SEEK_SET) == -1) {
 			perror("Failed to reset file pointer");
 			close(fd);
-			return;
+			sprintf(header, "400 Bad Request\r\nConnection: %s\r\n\r\n", ka_buf);
+			send(connfd, header, strlen(header), 0);
+			return iskeepalive;
 		}
 	
 		// Create header and get header length
-		char header[256];
-		sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %zd\r\nContent-Type: %s\r\n\r\n",
-				filesize, contenttype);
+		sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %zd\r\nContent-Type: %s\r\nConnection: %s\r\n\r\n",
+				filesize, contenttype, ka_buf);
 		size_t header_len = strlen(header);
 
 		// Allocate memory for the file content + null terminator + header length
@@ -259,16 +285,18 @@ void command_handler(int connfd, char* buf) {
 		if (!resp_buf) {
 			perror("Memory allocation failed");
 			close(fd);
-			return;
+			sprintf(header, "400 Bad Request\r\nConnection: %s\r\n\r\n", ka_buf);
+			send(connfd, header, strlen(header), 0);
+			return iskeepalive;
 		}
 
 		memcpy(resp_buf, header, header_len);
 
 		pread(fd, resp_buf+header_len, filesize + 1, 0);
-		printf("%s\n", resp_buf);
 		send(connfd, resp_buf, header_len + filesize + 1, 0);
 		free(resp_buf);
     }
+
 	close(fd);
-	printf("File, %s, closed\n", filepath);
+	return iskeepalive;
 }
