@@ -276,8 +276,8 @@ int command_handler(int connfd, char* buf) {
 		}
 	
 		// Create header and get header length
-		sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %zd\r\nContent-Type: %s\r\nConnection: %s\r\n\r\n",
-				filesize, contenttype, ka_buf);
+		sprintf(header, "%s 200 OK\r\nContent-Length: %zd\r\nContent-Type: %s\r\nConnection: %s\r\n\r\n",
+				version, filesize, contenttype, ka_buf);
 		size_t header_len = strlen(header);
 
 		// Allocate memory for the file content + null terminator + header length
