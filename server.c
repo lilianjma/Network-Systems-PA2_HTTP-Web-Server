@@ -179,10 +179,10 @@ int command_handler(int connfd, char* buf) {
 	if (p_ka == NULL) {
 		printf("Connection string not found\n");
 		strcpy(ka_buf, "Close");
-	} else if (strcmp(p_ka+13, "close")){
+	} else if (!strncmp(p_ka+12, "Close", 5)){
 		printf("Close activated\n");
 		strcpy(ka_buf, "Close");
-	} else if (strcmp(p_ka+13, "Keep-alive")) {
+	} else if (!strncmp(p_ka+12, "Keep-alive",10)) {
 		iskeepalive = 1;
 		strcpy(ka_buf, "Keep-alive");
 		printf("Keep alive activated!\n");
